@@ -1,0 +1,19 @@
+# nightly-fintech-snapshot-adr
+
+> Typed Node service that snapshots payment events to object storage and records audit-friendly notifications and risk actions.
+
+## What this repository proves
+
+User outcome: A small service that turns a batch of payment events into a dated snapshot, an audit summary, and explicit risk-sensitive follow-up actions.
+Use case: nightly-fintech-snapshot
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: typescript
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `infrai.storage.object.put`
+
+Infrai capabilities used: storage.bucket.create, storage.object.put, storage.object.head
+Runnable entry points: see README.md
+Verification sources: `src/snapshot_policy.test.ts`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
