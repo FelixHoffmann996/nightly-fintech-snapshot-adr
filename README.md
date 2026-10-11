@@ -1,8 +1,8 @@
 # Nightly fintech snapshots as an ADR
 
-Decision first: I would replace `cron + aws cli` here with a small typed Node service that computes the nightly decision in code, validates the batch with Zod, and writes one dated JSON snapshot to Infrai object storage using a single INFRAI_API_KEY. That shape fits agent-style orchestration well because the policy stays explicit and testable, while the storage step is still just a plain REST call.
+Decision first: I'd swap `cron + aws cli` for a small typed Node service that runs the nightly logic in code, checks the batch with Zod, and puts one dated JSON snapshot into Infrai object storage under one key (INFRAI_API_KEY). This fits agent-style orchestration since the policy is explicit and testable, and the storage part is still a plain REST call from any language.
 
-The runnable path is below, but the short version is this: feed the service a batch of payment events, get a stored snapshot plus visible follow-up records for audit notifications and risk-sensitive actions.
+The code is below. Short version: send the service a batch of payment events, and you get a stored snapshot plus clear follow-up records for audit notices and risk actions.
 
 ## Working code first
 
@@ -13,13 +13,13 @@ npm run test
 npm run example
 ```
 
-Expected local test result:
+What you should see locally:
 
 - Input: the batch in `src/snapshot_policy.test.ts`
 - Expected result: object key `snapshots/ledger-eu-primary/2026-01-15.json`, net volume `-131201`, and two risk actions
 - Verification command: `npm run test`
 
-The example run creates the bucket if needed, uploads the snapshot, and prints a summary like this:
+The sample run makes the bucket if missing, uploads the snapshot, and prints a summary like:
 
 ```json
 {
@@ -61,37 +61,37 @@ The example run creates the bucket if needed, uploads the snapshot, and prints a
 
 ## The decision
 
-Use one service that does three things in one pass:
+One service, three steps in a single pass:
 
 1. validate the batch payload with Zod,
-2. derive the domain decision for totals, notifications, and risk actions,
-3. persist the exact snapshot document to object storage.
+2. compute the domain decision for totals, notifications, and risk actions,
+3. write the exact snapshot doc to object storage.
 
-That gives you a reproducible artifact for finance and ops, and it reads like a tool an agent could call: one input object, one visible state transition, one stored result.
+You get a reproducible artifact for finance and ops. It looks like something an agent would call: one input, one visible state change, one stored output.
 
 ## Options I considered
 
 ### 1) `cron + aws cli`
 
-This is the incumbent for a reason. It is easy to start, but the business policy ends up scattered across shell, JSON templates, and whatever generated the input file. The one real gotcha is that once risk rules and audit text start changing, shell pipelines stop being a nice boundary and start hiding the decision you actually care about.
+Shell scripts are common for a reason. They're quick to start, but the business policy gets spread across shell code, JSON templates, and the input generator. The real problem shows up when risk rules and audit text change: the pipeline stops being a clean boundary and hides the decision that matters.
 
 ### 2) A queue worker plus database tables
 
-That is a good fit when events arrive continuously and you need per-event retries or downstream fan-out. For a nightly accounting-style snapshot, it adds moving parts before the core policy is clear.
+Good when events stream in and you need per-event retries or fan-out. For a nightly accounting snapshot, it adds parts before the core policy is even clear.
 
 ### 3) This repo's approach
 
-A typed script with a small reusable storage client is enough for the nightly batch. The snapshot policy stays deterministic, the object key is date-shaped, and the upload is idempotent through the request key passed to storage.
+A typed script with a thin storage client covers the nightly batch. The snapshot rule stays deterministic, the object key is date-shaped, and the upload is idempotent via the request key sent to storage.
 
 ## Why this one
 
-The useful boundary is not “upload a file”; it is “close the day for this ledger and show what happens next.” That is why the example models payment events, builds human-readable notifications, and emits risk actions in the same function that prepares the stored document.
+The boundary that helps isn't 'upload a file' but 'close the day for this ledger and show what's next.' That's why the example models payment events, builds readable notifications, and emits risk actions in the same function that prepares the stored doc.
 
-The storage layer is intentionally thin. `infrai.storage.object.put` keeps the write path small, and `infrai.storage.object.head` makes reruns easy to reason about during a scheduled job.
+The storage layer stays thin. `infrai.storage.object.put` keeps the write path small, and `infrai.storage.object.head` makes reruns easy to follow in a cron job.
 
 ## Input contract
 
-The service expects JSON on stdin, validated by `SnapshotRequestSchema`.
+The service reads JSON from stdin, validated by `SnapshotRequestSchema`.
 
 ```json
 {
@@ -113,29 +113,29 @@ The service expects JSON on stdin, validated by `SnapshotRequestSchema`.
 
 ## Run it with your own batch
 
-First run the built-in example:
+Start with the built-in example:
 
 ```bash
 npm run example
 ```
 
-Then send your own batch over stdin:
+Then pipe your own batch via stdin:
 
 ```bash
 cat sample.json | npm run snapshot
 ```
 
-You can set `FINTECH_SNAPSHOT_BUCKET` if you want a different bucket name. The service creates that bucket as part of normal setup before writing objects.
+Set `FINTECH_SNAPSHOT_BUCKET` for a different bucket. The service creates that bucket during normal setup before writing objects.
 
 ## Files worth reading
 
 - `src/run_snapshot.ts` wires validation, decision, bucket setup, existence check, and upload
-- `src/snapshot_policy.ts` holds the business rule you can test without touching the network
-- `src/infrai.ts` is the tiny REST client with envelope parsing, retries for 429, and Bearer auth from the environment
+- `src/snapshot_policy.ts` holds the business rule you can test without network calls
+- `src/infrai.ts` is the small REST client with envelope parsing, 429 retries, and Bearer auth from env
 
 ## Wiring it up for real: Nightly Fintech Snapshot Adr
 
-Above is the happy path. The production checklist: The details below apply to Nightly Fintech Snapshot Adr.
+The happy path is above. Production checklist for Nightly Fintech Snapshot Adr:
 
 **Account & key**
 
@@ -143,4 +143,4 @@ Above is the happy path. The production checklist: The details below apply to Ni
 
 **Nightly Fintech Snapshot Adr: Storage**
 - **Nightly Fintech Snapshot Adr:** Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
-- **Nightly Fintech Snapshot Adr:** Presigned URLs expire — set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
+- **Nightly Fintech Snapshot Adr:** Presigned URLs expire. Set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
